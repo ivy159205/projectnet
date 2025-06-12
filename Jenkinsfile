@@ -33,22 +33,13 @@ pipeline {
         stage('Stop IIS Application Pool') {
             steps {
                 echo 'Stopping IIS Application Pool...'
-                bat '''
-                    powershell -Command "
-                    Import-Module WebAdministration
+                script {
                     try {
-                        $pool = Get-WebAppPoolState -Name 'DefaultAppPool'
-                        if ($pool.Value -eq 'Started') {
-                            Stop-WebAppPool -Name 'DefaultAppPool'
-                            Write-Host 'Application pool stopped successfully'
-                        } else {
-                            Write-Host 'Application pool is already stopped'
-                        }
-                    } catch {
-                        Write-Host 'Error stopping application pool: $_'
+                        bat 'powershell -Command "Import-Module WebAdministration; Stop-WebAppPool -Name DefaultAppPool"'
+                    } catch (Exception e) {
+                        echo "Warning: Could not stop application pool: ${e.getMessage()}"
                     }
-                    "
-                '''
+                }
             }
         }
         
@@ -62,33 +53,19 @@ pipeline {
             }
         }
         
-        stage('Start IIS Application Pool') {
+        stage('Wait and Start IIS Application Pool') {
             steps {
-                echo 'Starting IIS Application Pool...'
-                bat '''
-                    powershell -Command "
-                    Import-Module WebAdministration
-                    Start-Sleep -Seconds 3
+                echo 'Waiting and starting IIS Application Pool...'
+                script {
                     try {
-                        $pool = Get-WebAppPoolState -Name 'DefaultAppPool'
-                        if ($pool.Value -ne 'Started') {
-                            Start-WebAppPool -Name 'DefaultAppPool'
-                            Write-Host 'Application pool started successfully'
-                        } else {
-                            Write-Host 'Application pool is already running'
-                        }
-                    } catch {
-                        Write-Host 'Error starting application pool: $_'
-                        Write-Host 'Attempting to restart the application pool...'
-                        try {
-                            Restart-WebAppPool -Name 'DefaultAppPool'
-                            Write-Host 'Application pool restarted successfully'
-                        } catch {
-                            Write-Host 'Failed to restart application pool: $_'
-                        }
+                        bat 'timeout /t 5 /nobreak'
+                        bat 'powershell -Command "Import-Module WebAdministration; Start-WebAppPool -Name DefaultAppPool"'
+                    } catch (Exception e) {
+                        echo "Warning: Could not start application pool: ${e.getMessage()}"
+                        echo "Attempting IIS reset as fallback..."
+                        bat 'iisreset /restart'
                     }
-                    "
-                '''
+                }
             }
         }
         
