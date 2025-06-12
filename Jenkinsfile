@@ -33,7 +33,22 @@ pipeline {
         stage('Stop IIS Application Pool') {
             steps {
                 echo 'Stopping IIS Application Pool...'
-                bat 'powershell -Command "Import-Module WebAdministration; Stop-WebAppPool -Name \'DefaultAppPool\'"'
+                bat '''
+                    powershell -Command "
+                    Import-Module WebAdministration
+                    try {
+                        $pool = Get-WebAppPoolState -Name 'DefaultAppPool'
+                        if ($pool.Value -eq 'Started') {
+                            Stop-WebAppPool -Name 'DefaultAppPool'
+                            Write-Host 'Application pool stopped successfully'
+                        } else {
+                            Write-Host 'Application pool is already stopped'
+                        }
+                    } catch {
+                        Write-Host 'Error stopping application pool: $_'
+                    }
+                    "
+                '''
             }
         }
         
@@ -50,7 +65,30 @@ pipeline {
         stage('Start IIS Application Pool') {
             steps {
                 echo 'Starting IIS Application Pool...'
-                bat 'powershell -Command "Import-Module WebAdministration; Start-WebAppPool -Name \'DefaultAppPool\'"'
+                bat '''
+                    powershell -Command "
+                    Import-Module WebAdministration
+                    Start-Sleep -Seconds 3
+                    try {
+                        $pool = Get-WebAppPoolState -Name 'DefaultAppPool'
+                        if ($pool.Value -ne 'Started') {
+                            Start-WebAppPool -Name 'DefaultAppPool'
+                            Write-Host 'Application pool started successfully'
+                        } else {
+                            Write-Host 'Application pool is already running'
+                        }
+                    } catch {
+                        Write-Host 'Error starting application pool: $_'
+                        Write-Host 'Attempting to restart the application pool...'
+                        try {
+                            Restart-WebAppPool -Name 'DefaultAppPool'
+                            Write-Host 'Application pool restarted successfully'
+                        } catch {
+                            Write-Host 'Failed to restart application pool: $_'
+                        }
+                    }
+                    "
+                '''
             }
         }
         
