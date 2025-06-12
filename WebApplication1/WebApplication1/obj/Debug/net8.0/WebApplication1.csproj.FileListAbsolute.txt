@@ -27,3 +27,4 @@ C:\Users\casto\OneDrive\Desktop\Demo\WebApplication1\WebApplication1\obj\Debug\n
 C:\Users\casto\OneDrive\Desktop\Demo\WebApplication1\WebApplication1\obj\Debug\net8.0\WebApplication1.pdb
 C:\Users\casto\OneDrive\Desktop\Demo\WebApplication1\WebApplication1\obj\Debug\net8.0\WebApplication1.genruntimeconfig.cache
 C:\Users\casto\OneDrive\Desktop\Demo\WebApplication1\WebApplication1\obj\Debug\net8.0\ref\WebApplication1.dll
+C:\Users\casto\OneDrive\Desktop\Demo\WebApplication1\WebApplication1\obj\Debug\net8.0\WebApplication1.sourcelink.json
