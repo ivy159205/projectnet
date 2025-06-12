@@ -2,13 +2,6 @@ pipeline {
     agent any
     
     stages {
-        stage('Clone') {
-            steps {
-                echo 'Cloning source code...'
-                git 'https://github.com/ivy159205/projectnet.git'
-            }
-        }
-        
         stage('Restore packages') {
             steps {
                 echo 'Restoring NuGet packages...'
