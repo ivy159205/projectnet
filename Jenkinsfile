@@ -71,8 +71,15 @@ pipeline {
         
         stage('Deploy to IIS') {
             steps {
-                echo 'Deployment completed successfully!'
+                powershell '''
+               
+                # Tạo website nếu chưa có
+                Import-Module WebAdministration
+                if (-not (Test-Path IIS:\\Sites\\MySite)) {
+                    New-Website -Name "MySite" -Port 81 -PhysicalPath "C:\\wwwroot\\myproject"
+                }
+                '''
             }
-        }
+        } // end deploy iis
     }
 }
