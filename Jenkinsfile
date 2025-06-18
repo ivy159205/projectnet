@@ -37,34 +37,25 @@ pipeline {
         }
 
         stage('Setup IIS Sites') {
-    steps {
-        echo 'Creating IIS websites on port 82 and 83 if they do not exist...'
-        bat '''
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "
-                Import-Module WebAdministration
-
-                $sites = @(
-                    @{ Name='projectnet82'; Port=82; Path='C:\\inetpub\\wwwroot\\projectnet82' },
-                    @{ Name='projectnet83'; Port=83; Path='C:\\inetpub\\wwwroot\\projectnet83' }
-                )
-
-                foreach ($site in $sites) {
-                    if (-Not (Test-Path $site.Path)) {
-                        New-Item -ItemType Directory -Path $site.Path | Out-Null
-                    }
-
-                    if (-Not (Get-Website -Name $site.Name -ErrorAction SilentlyContinue)) {
-                        New-Website -Name $site.Name -Port $site.Port -PhysicalPath $site.Path -ApplicationPool 'DefaultAppPool'
-                        Write-Output \\"Created IIS site: $($site.Name) on port $($site.Port)\\"
-                    } else {
-                        Write-Output \\"IIS site $($site.Name) already exists.\\"
-                    }
-                }
-            "
+            steps {
+                echo 'Creating IIS websites on port 82 and 83 if they do not exist...'
+                bat '''
+        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "Import-Module WebAdministration; ^
+        $sites = @(@{ Name='projectnet82'; Port=82; Path='C:\\inetpub\\wwwroot\\projectnet82' }, ^
+                   @{ Name='projectnet83'; Port=83; Path='C:\\inetpub\\wwwroot\\projectnet83' }); ^
+        foreach ($site in $sites) { ^
+            if (-Not (Test-Path $site.Path)) { New-Item -ItemType Directory -Path $site.Path | Out-Null }; ^
+            if (-Not (Get-Website -Name $site.Name -ErrorAction SilentlyContinue)) { ^
+                New-Website -Name $site.Name -Port $site.Port -PhysicalPath $site.Path -ApplicationPool 'DefaultAppPool'; ^
+                Write-Host 'Created site: ' $site.Name ^
+            } else { ^
+                Write-Host 'Site exists: ' $site.Name ^
+            } ^
+        }"
         '''
-    }
-}
-
+            }
+        }
 
         stage('Stop IIS Application Pools') {
             steps {
