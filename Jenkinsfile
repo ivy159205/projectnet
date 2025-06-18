@@ -38,9 +38,35 @@ pipeline {
 
         stage('Setup IIS Sites') {
             steps {
-                echo 'Creating IIS websites on port 82 and 83 if they do not exist...'
+                echo 'Creating IIS websites on port 82 and 83 with separate app pools...'
                 bat '''
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "Import-Module WebAdministration; $sites = @(@{ Name='projectnet82'; Port=82; Path='C:\\inetpub\\wwwroot\\projectnet82' }, @{ Name='projectnet83'; Port=83; Path='C:\\inetpub\\wwwroot\\projectnet83' }); foreach ($site in $sites) { if (-Not (Test-Path $site.Path)) { New-Item -ItemType Directory -Path $site.Path | Out-Null }; if (-Not (Get-Website -Name $site.Name -ErrorAction SilentlyContinue)) { New-Website -Name $site.Name -Port $site.Port -PhysicalPath $site.Path -ApplicationPool 'DefaultAppPool'; Write-Host 'Created site: ' $site.Name } else { Write-Host 'Site exists: ' $site.Name } }"
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        Import-Module WebAdministration;
+
+        $sites = @(
+            @{ Name='projectnet82'; Port=82; Path='C:\\inetpub\\wwwroot\\projectnet82'; AppPool='projectnet82AppPool' },
+            @{ Name='projectnet83'; Port=83; Path='C:\\inetpub\\wwwroot\\projectnet83'; AppPool='projectnet83AppPool' }
+        );
+
+        foreach ($site in $sites) {
+            if (-Not (Test-Path $site.Path)) {
+                New-Item -ItemType Directory -Path $site.Path | Out-Null
+            }
+
+            if (-Not (Get-WebAppPoolState -Name $site.AppPool -ErrorAction SilentlyContinue)) {
+                New-WebAppPool -Name $site.AppPool;
+                Write-Host 'Created app pool: ' $site.AppPool
+            } else {
+                Write-Host 'App pool exists: ' $site.AppPool
+            }
+
+            if (-Not (Get-Website -Name $site.Name -ErrorAction SilentlyContinue)) {
+                New-Website -Name $site.Name -Port $site.Port -PhysicalPath $site.Path -ApplicationPool $site.AppPool;
+                Write-Host 'Created site: ' $site.Name
+            } else {
+                Write-Host 'Site exists: ' $site.Name
+            }
+        }"
         '''
             }
         }
