@@ -39,42 +39,68 @@ pipeline {
         stage('Setup IIS Sites') {
             steps {
                 echo 'Creating IIS websites on port 82 and 83 with separate app pools...'
-                bat '''
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "
-        Import-Module WebAdministration;
+                powershell '''
+                    Import-Module WebAdministration
+                    
+                    $sites = @(
+                        @{ Name='projectnet82'; Port=82; Path='C:\\inetpub\\wwwroot\\projectnet82'; AppPool='projectnet82AppPool' },
+                        @{ Name='projectnet83'; Port=83; Path='C:\\inetpub\\wwwroot\\projectnet83'; AppPool='projectnet83AppPool' }
+                    )
 
-        $sites = @(
-            @{ Name='projectnet82'; Port=82; Path='C:\\inetpub\\wwwroot\\projectnet82'; AppPool='projectnet82AppPool' },
-            @{ Name='projectnet83'; Port=83; Path='C:\\inetpub\\wwwroot\\projectnet83'; AppPool='projectnet83AppPool' }
-        );
+                    foreach ($site in $sites) {
+                        # Create directory if it doesn't exist
+                        if (-Not (Test-Path $site.Path)) {
+                            New-Item -ItemType Directory -Path $site.Path -Force | Out-Null
+                            Write-Host "Created directory: $($site.Path)"
+                        }
 
-        foreach ($site in $sites) {
-            if (-Not (Test-Path $site.Path)) {
-                New-Item -ItemType Directory -Path $site.Path | Out-Null
-            }
+                        # Create application pool if it doesn't exist
+                        try {
+                            $pool = Get-WebAppPool -Name $site.AppPool -ErrorAction Stop
+                            Write-Host "App pool exists: $($site.AppPool)"
+                        }
+                        catch {
+                            New-WebAppPool -Name $site.AppPool
+                            Write-Host "Created app pool: $($site.AppPool)"
+                        }
 
-            if (-Not (Get-WebAppPoolState -Name $site.AppPool -ErrorAction SilentlyContinue)) {
-                New-WebAppPool -Name $site.AppPool;
-                Write-Host 'Created app pool: ' $site.AppPool
-            } else {
-                Write-Host 'App pool exists: ' $site.AppPool
-            }
-
-            if (-Not (Get-Website -Name $site.Name -ErrorAction SilentlyContinue)) {
-                New-Website -Name $site.Name -Port $site.Port -PhysicalPath $site.Path -ApplicationPool $site.AppPool;
-                Write-Host 'Created site: ' $site.Name
-            } else {
-                Write-Host 'Site exists: ' $site.Name
-            }
-        }"
-        '''
+                        # Create website if it doesn't exist
+                        try {
+                            $website = Get-Website -Name $site.Name -ErrorAction Stop
+                            Write-Host "Site exists: $($site.Name)"
+                        }
+                        catch {
+                            New-Website -Name $site.Name -Port $site.Port -PhysicalPath $site.Path -ApplicationPool $site.AppPool
+                            Write-Host "Created site: $($site.Name)"
+                        }
+                    }
+                '''
             }
         }
 
         stage('Stop IIS Application Pools') {
             steps {
                 echo 'Stopping IIS Application Pools...'
-                bat 'powershell -NoProfile -Command "Import-Module WebAdministration; if (Test-Path \\"IIS:\\\\AppPools\\\\DefaultAppPool\\") { Stop-WebAppPool -Name \\"DefaultAppPool\\" -ErrorAction SilentlyContinue } else { Write-Host \\"AppPool DefaultAppPool does not exist.\\" }"'
+                powershell '''
+                    Import-Module WebAdministration
+                    
+                    $pools = @('projectnet82AppPool', 'projectnet83AppPool')
+                    
+                    foreach ($pool in $pools) {
+                        try {
+                            $state = Get-WebAppPoolState -Name $pool -ErrorAction Stop
+                            if ($state.Value -eq 'Started') {
+                                Stop-WebAppPool -Name $pool
+                                Write-Host "Stopped app pool: $pool"
+                            } else {
+                                Write-Host "App pool $pool is already stopped"
+                            }
+                        }
+                        catch {
+                            Write-Host "App pool $pool does not exist or cannot be stopped"
+                        }
+                    }
+                '''
             }
         }
 
@@ -83,13 +109,13 @@ pipeline {
                 stage('Copy to Port 82 folder') {
                     steps {
                         echo 'Copying to Port 82 folder...'
-                        bat 'xcopy /E /Y publish\\* C:\\inetpub\\wwwroot\\projectnet82\\'
+                        bat 'xcopy /E /Y /I publish\\* C:\\inetpub\\wwwroot\\projectnet82\\'
                     }
                 }
                 stage('Copy to Port 83 folder') {
                     steps {
                         echo 'Copying to Port 83 folder...'
-                        bat 'xcopy /E /Y publish\\* C:\\inetpub\\wwwroot\\projectnet83\\'
+                        bat 'xcopy /E /Y /I publish\\* C:\\inetpub\\wwwroot\\projectnet83\\'
                     }
                 }
             }
@@ -98,14 +124,47 @@ pipeline {
         stage('Start IIS Application Pools') {
             steps {
                 echo 'Starting IIS Application Pools...'
-                bat 'powershell -NoProfile -Command "Import-Module WebAdministration; Start-WebAppPool -Name \\"DefaultAppPool\\""'
+                powershell '''
+                    Import-Module WebAdministration
+                    
+                    $pools = @('projectnet82AppPool', 'projectnet83AppPool')
+                    
+                    foreach ($pool in $pools) {
+                        try {
+                            $state = Get-WebAppPoolState -Name $pool -ErrorAction Stop
+                            if ($state.Value -ne 'Started') {
+                                Start-WebAppPool -Name $pool
+                                Write-Host "Started app pool: $pool"
+                            } else {
+                                Write-Host "App pool $pool is already started"
+                            }
+                        }
+                        catch {
+                            Write-Host "Cannot start app pool $pool"
+                        }
+                    }
+                '''
             }
         }
 
         stage('Verify Deployment') {
             steps {
                 echo 'Verifying deployment...'
-                bat 'curl http://localhost:82 || curl http://localhost:83'
+                script {
+                    try {
+                        bat 'curl -f http://localhost:82'
+                        echo 'Port 82 is responding'
+                    } catch (Exception e) {
+                        echo 'Port 82 failed: ' + e.getMessage()
+                    }
+                    
+                    try {
+                        bat 'curl -f http://localhost:83'
+                        echo 'Port 83 is responding'
+                    } catch (Exception e) {
+                        echo 'Port 83 failed: ' + e.getMessage()
+                    }
+                }
             }
         }
     }
