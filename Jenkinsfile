@@ -42,6 +42,18 @@ pipeline {
                 powershell '''
                     Import-Module WebAdministration
                     
+                    # First, clean up any existing bindings on ports 82 and 83
+                    $portsToClean = @(82, 83)
+                    foreach ($port in $portsToClean) {
+                        $existingBinding = Get-WebBinding -Port $port -ErrorAction SilentlyContinue
+                        if ($existingBinding) {
+                            $siteName = $existingBinding.ItemXPath -replace '.*name=''([^'']+)''.*', '$1'
+                            Write-Host "Found existing binding on port $port for site: $siteName"
+                            Remove-WebBinding -Name $siteName -Port $port -Confirm:$false
+                            Write-Host "Removed binding for port $port"
+                        }
+                    }
+                    
                     $sites = @(
                         @{ Name='projectnet82'; Port=82; Path='C:\\inetpub\\wwwroot\\projectnet82'; AppPool='projectnet82AppPool' },
                         @{ Name='projectnet83'; Port=83; Path='C:\\inetpub\\wwwroot\\projectnet83'; AppPool='projectnet83AppPool' }
@@ -54,25 +66,40 @@ pipeline {
                             Write-Host "Created directory: $($site.Path)"
                         }
 
-                        # Create application pool if it doesn't exist
+                        # Remove existing app pool if it exists to ensure clean setup
                         try {
-                            $pool = Get-WebAppPool -Name $site.AppPool -ErrorAction Stop
-                            Write-Host "App pool exists: $($site.AppPool)"
+                            $existingPool = Get-WebAppPool -Name $site.AppPool -ErrorAction Stop
+                            Remove-WebAppPool -Name $site.AppPool -Confirm:$false
+                            Write-Host "Removed existing app pool: $($site.AppPool)"
                         }
                         catch {
-                            New-WebAppPool -Name $site.AppPool
-                            Write-Host "Created app pool: $($site.AppPool)"
+                            Write-Host "App pool $($site.AppPool) does not exist"
                         }
 
-                        # Create website if it doesn't exist
+                        # Create new application pool with proper settings for ASP.NET Core
+                        New-WebAppPool -Name $site.AppPool
+                        Set-ItemProperty -Path "IIS:\\AppPools\\$($site.AppPool)" -Name "managedRuntimeVersion" -Value ""
+                        Set-ItemProperty -Path "IIS:\\AppPools\\$($site.AppPool)" -Name "enable32BitAppOnWin64" -Value $false
+                        Set-ItemProperty -Path "IIS:\\AppPools\\$($site.AppPool)" -Name "processModel.identityType" -Value "ApplicationPoolIdentity"
+                        Write-Host "Created app pool with ASP.NET Core settings: $($site.AppPool)"
+
+                        # Remove existing website if it exists
                         try {
-                            $website = Get-Website -Name $site.Name -ErrorAction Stop
-                            Write-Host "Site exists: $($site.Name)"
+                            $existingSite = Get-Website -Name $site.Name -ErrorAction Stop
+                            Remove-Website -Name $site.Name -Confirm:$false
+                            Write-Host "Removed existing website: $($site.Name)"
                         }
                         catch {
-                            New-Website -Name $site.Name -Port $site.Port -PhysicalPath $site.Path -ApplicationPool $site.AppPool
-                            Write-Host "Created site: $($site.Name)"
+                            Write-Host "Website $($site.Name) does not exist"
                         }
+
+                        # Create new website
+                        New-Website -Name $site.Name -Port $site.Port -PhysicalPath $site.Path -ApplicationPool $site.AppPool
+                        Write-Host "Created website: $($site.Name) on port $($site.Port) with app pool $($site.AppPool)"
+                        
+                        # Verify the website configuration
+                        $createdSite = Get-Website -Name $site.Name
+                        Write-Host "Verified - Website: $($createdSite.Name), Port: $($createdSite.Bindings.Collection[0].bindingInformation), AppPool: $($createdSite.ApplicationPool)"
                     }
                 '''
             }
