@@ -1,7 +1,18 @@
 pipeline {
     agent any
 
+    environment {
+        PUBLISH_FOLDER = "${WORKSPACE}/publish"
+        IIS_APPPOOL = "DefaultAppPool"
+    }
+
     stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
         stage('Restore packages') {
             steps {
                 echo 'Restoring NuGet packages...'
@@ -26,7 +37,7 @@ pipeline {
         stage('Publish') {
             steps {
                 echo 'Publishing project to folder...'
-                bat 'dotnet publish WebApplication1/WebApplication1/WebApplication1.csproj -c Release -o %WORKSPACE%\\publish'
+                bat "dotnet publish WebApplication1/WebApplication1/WebApplication1.csproj -c Release -o ${PUBLISH_FOLDER}"
             }
         }
 
@@ -34,8 +45,14 @@ pipeline {
             steps {
                 echo 'Stopping IIS Application Pools...'
                 script {
-                    bat 'powershell -Command "Import-Module WebAdministration; Stop-WebAppPool -Name MyAppPool82 -ErrorAction SilentlyContinue" || echo Warning: Could not stop MyAppPool82'
-                    bat 'powershell -Command "Import-Module WebAdministration; Stop-WebAppPool -Name MyAppPool83 -ErrorAction SilentlyContinue" || echo Warning: Could not stop MyAppPool83'
+                    bat """
+                    powershell -Command "Import-Module WebAdministration;
+                    if (Test-Path IIS:\\AppPools\\${env.IIS_APPPOOL}) {
+                        Stop-WebAppPool -Name ${env.IIS_APPPOOL} -ErrorAction SilentlyContinue
+                    } else {
+                        Write-Host 'AppPool ${env.IIS_APPPOOL} does not exist.'
+                    }"
+                    """
                 }
             }
         }
@@ -44,23 +61,16 @@ pipeline {
             parallel {
                 stage('Copy to Port 82 folder') {
                     steps {
-                        echo 'Copying files to Port 82 IIS folder...'
-                        bat 'robocopy "%WORKSPACE%\\publish" "c:\\wwwroot\\myproject82" /E /R:3 /W:10'
+                        echo 'Copying files to IIS Port 82...'
+                        bat "xcopy ${PUBLISH_FOLDER} C:\\inetpub\\wwwroot\\MyWebApp82 /E /Y /I"
                     }
                 }
                 stage('Copy to Port 83 folder') {
                     steps {
-                        echo 'Copying files to Port 83 IIS folder...'
-                        bat 'robocopy "%WORKSPACE%\\publish" "c:\\wwwroot\\myproject83" /E /R:3 /W:10'
+                        echo 'Copying files to IIS Port 83...'
+                        bat "xcopy ${PUBLISH_FOLDER} C:\\inetpub\\wwwroot\\MyWebApp83 /E /Y /I"
                     }
                 }
-            }
-        }
-
-        stage('Deploy to IIS - Dual Ports') {
-            steps {
-                echo 'Deploying to IIS...'
-                // Các bước thêm nếu cần
             }
         }
 
@@ -68,16 +78,21 @@ pipeline {
             steps {
                 echo 'Starting IIS Application Pools...'
                 script {
-                    bat 'powershell -Command "Import-Module WebAdministration; Start-WebAppPool -Name MyAppPool82 -ErrorAction SilentlyContinue" || echo Warning: Could not start MyAppPool82'
-                    bat 'powershell -Command "Import-Module WebAdministration; Start-WebAppPool -Name MyAppPool83 -ErrorAction SilentlyContinue" || echo Warning: Could not start MyAppPool83'
+                    bat """
+                    powershell -Command "Import-Module WebAdministration;
+                    if (Test-Path IIS:\\AppPools\\${env.IIS_APPPOOL}) {
+                        Start-WebAppPool -Name ${env.IIS_APPPOOL}
+                    } else {
+                        Write-Host 'AppPool ${env.IIS_APPPOOL} does not exist.'
+                    }"
+                    """
                 }
             }
         }
 
         stage('Verify Deployment') {
             steps {
-                echo 'Verifying deployment...'
-                // Ví dụ ping hoặc HTTP request đến localhost:82, :83 nếu cần
+                echo 'Deployment complete.'
             }
         }
     }
@@ -87,7 +102,6 @@ pipeline {
             echo 'Cleaning up workspace...'
             cleanWs()
         }
-
         failure {
             echo 'Deployment failed!'
         }
