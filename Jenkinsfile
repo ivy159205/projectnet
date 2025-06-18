@@ -1,12 +1,6 @@
 pipeline {
     agent any
 
-    environment {
-        BUILD_CONFIGURATION = 'Release'
-        PUBLISH_DIR = "${WORKSPACE}/publish"
-        PROJECT_PATH = 'WebApplication1/WebApplication1/WebApplication1.csproj'
-    }
-
     stages {
         stage('Checkout') {
             steps {
@@ -17,42 +11,35 @@ pipeline {
         stage('Restore packages') {
             steps {
                 echo 'Restoring NuGet packages...'
-                bat "dotnet restore ${PROJECT_PATH}"
+                bat 'dotnet restore WebApplication1/WebApplication1/WebApplication1.csproj'
             }
         }
 
         stage('Build') {
             steps {
                 echo 'Building the project...'
-                bat "dotnet build ${PROJECT_PATH} --configuration ${BUILD_CONFIGURATION}"
+                bat 'dotnet build WebApplication1/WebApplication1/WebApplication1.csproj --configuration Release'
             }
         }
 
         stage('Test') {
             steps {
                 echo 'Running tests...'
-                bat "dotnet test ${PROJECT_PATH} --no-build --verbosity normal"
+                bat 'dotnet test WebApplication1/WebApplication1/WebApplication1.csproj --no-build --verbosity normal'
             }
         }
 
         stage('Publish') {
             steps {
                 echo 'Publishing project to folder...'
-                bat "dotnet publish ${PROJECT_PATH} -c ${BUILD_CONFIGURATION} -o ${PUBLISH_DIR}"
+                bat 'dotnet publish WebApplication1/WebApplication1/WebApplication1.csproj -c Release -o C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\demo_devops\\publish'
             }
         }
 
         stage('Stop IIS Application Pools') {
             steps {
                 echo 'Stopping IIS Application Pools...'
-                bat '''
-                    powershell -NoProfile -Command "Import-Module WebAdministration; `
-                    if (Test-Path 'IIS:\\AppPools\\DefaultAppPool') { `
-                        Stop-WebAppPool -Name 'DefaultAppPool' -ErrorAction SilentlyContinue `
-                    } else { `
-                        Write-Host 'AppPool DefaultAppPool does not exist.' `
-                    }"
-                '''
+                bat 'powershell -NoProfile -Command "Import-Module WebAdministration; if (Test-Path \\"IIS:\\\\AppPools\\\\DefaultAppPool\\") { Stop-WebAppPool -Name \\"DefaultAppPool\\" -ErrorAction SilentlyContinue } else { Write-Host \\"AppPool DefaultAppPool does not exist.\\" }"'
             }
         }
 
@@ -60,12 +47,14 @@ pipeline {
             parallel {
                 stage('Copy to Port 82 folder') {
                     steps {
-                        bat "xcopy /E /Y /I ${PUBLISH_DIR} C:\\inetpub\\port82\\"
+                        echo 'Copying to Port 82 folder...'
+                        bat 'xcopy /E /Y publish\\* C:\\inetpub\\wwwroot\\projectnet82\\'
                     }
                 }
                 stage('Copy to Port 83 folder') {
                     steps {
-                        bat "xcopy /E /Y /I ${PUBLISH_DIR} C:\\inetpub\\port83\\"
+                        echo 'Copying to Port 83 folder...'
+                        bat 'xcopy /E /Y publish\\* C:\\inetpub\\wwwroot\\projectnet83\\'
                     }
                 }
             }
@@ -74,20 +63,14 @@ pipeline {
         stage('Start IIS Application Pools') {
             steps {
                 echo 'Starting IIS Application Pools...'
-                bat '''
-                    powershell -NoProfile -Command "Import-Module WebAdministration; `
-                    if (Test-Path 'IIS:\\AppPools\\DefaultAppPool') { `
-                        Start-WebAppPool -Name 'DefaultAppPool' `
-                    } else { `
-                        Write-Host 'AppPool DefaultAppPool does not exist.' `
-                    }"
-                '''
+                bat 'powershell -NoProfile -Command "Import-Module WebAdministration; Start-WebAppPool -Name \\"DefaultAppPool\\""'
             }
         }
 
         stage('Verify Deployment') {
             steps {
-                echo 'Deployment complete. You may verify on browser.'
+                echo 'Verifying deployment...'
+                bat 'curl http://localhost:82 || curl http://localhost:83'
             }
         }
     }
@@ -99,6 +82,9 @@ pipeline {
         }
         failure {
             echo 'Deployment failed!'
+        }
+        success {
+            echo 'Deployment succeeded!'
         }
     }
 }
