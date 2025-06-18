@@ -80,18 +80,51 @@ pipeline {
 
         stage('Stop IIS Application Pools') {
             steps {
-                echo 'Stopping IIS Application Pools...'
+                echo 'Stopping IIS Application Pools and Websites...'
                 powershell '''
                     Import-Module WebAdministration
                     
-                    $pools = @('projectnet82AppPool', 'projectnet83AppPool')
+                    # Stop websites first
+                    $sites = @('projectnet82', 'projectnet83')
+                    foreach ($site in $sites) {
+                        try {
+                            $siteState = Get-WebsiteState -Name $site -ErrorAction Stop
+                            if ($siteState.Value -eq 'Started') {
+                                Stop-Website -Name $site
+                                Write-Host "Stopped website: $site"
+                                Start-Sleep -Seconds 2
+                            } else {
+                                Write-Host "Website $site is already stopped"
+                            }
+                        }
+                        catch {
+                            Write-Host "Website $site does not exist or cannot be stopped"
+                        }
+                    }
                     
+                    # Then stop app pools
+                    $pools = @('projectnet82AppPool', 'projectnet83AppPool')
                     foreach ($pool in $pools) {
                         try {
                             $state = Get-WebAppPoolState -Name $pool -ErrorAction Stop
                             if ($state.Value -eq 'Started') {
                                 Stop-WebAppPool -Name $pool
                                 Write-Host "Stopped app pool: $pool"
+                                
+                                # Wait for app pool to fully stop
+                                $timeout = 30
+                                $elapsed = 0
+                                do {
+                                    Start-Sleep -Seconds 1
+                                    $elapsed++
+                                    $currentState = Get-WebAppPoolState -Name $pool -ErrorAction SilentlyContinue
+                                } while ($currentState.Value -eq 'Started' -and $elapsed -lt $timeout)
+                                
+                                if ($elapsed -ge $timeout) {
+                                    Write-Host "Warning: App pool $pool may not have stopped completely"
+                                } else {
+                                    Write-Host "App pool $pool fully stopped after $elapsed seconds"
+                                }
                             } else {
                                 Write-Host "App pool $pool is already stopped"
                             }
@@ -99,6 +132,15 @@ pipeline {
                         catch {
                             Write-Host "App pool $pool does not exist or cannot be stopped"
                         }
+                    }
+                    
+                    # Additional cleanup - kill any remaining w3wp processes
+                    try {
+                        Get-Process -Name "w3wp" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                        Write-Host "Cleaned up any remaining w3wp processes"
+                    }
+                    catch {
+                        Write-Host "No w3wp processes to clean up"
                     }
                 '''
             }
@@ -109,13 +151,53 @@ pipeline {
                 stage('Copy to Port 82 folder') {
                     steps {
                         echo 'Copying to Port 82 folder...'
-                        bat 'xcopy /E /Y /I publish\\* C:\\inetpub\\wwwroot\\projectnet82\\'
+                        retry(3) {
+                            powershell '''
+                                $source = "publish\\*"
+                                $destination = "C:\\inetpub\\wwwroot\\projectnet82\\"
+                                
+                                # Ensure destination exists
+                                if (-Not (Test-Path $destination)) {
+                                    New-Item -ItemType Directory -Path $destination -Force | Out-Null
+                                }
+                                
+                                # Use robocopy for better handling of locked files
+                                $result = robocopy "publish" "C:\\inetpub\\wwwroot\\projectnet82" /E /R:3 /W:5 /MT:8
+                                
+                                # Robocopy exit codes: 0-7 are success, 8+ are errors
+                                if ($LASTEXITCODE -gt 7) {
+                                    throw "Robocopy failed with exit code: $LASTEXITCODE"
+                                } else {
+                                    Write-Host "Files copied successfully to Port 82 folder"
+                                }
+                            '''
+                        }
                     }
                 }
                 stage('Copy to Port 83 folder') {
                     steps {
                         echo 'Copying to Port 83 folder...'
-                        bat 'xcopy /E /Y /I publish\\* C:\\inetpub\\wwwroot\\projectnet83\\'
+                        retry(3) {
+                            powershell '''
+                                $source = "publish\\*"
+                                $destination = "C:\\inetpub\\wwwroot\\projectnet83\\"
+                                
+                                # Ensure destination exists
+                                if (-Not (Test-Path $destination)) {
+                                    New-Item -ItemType Directory -Path $destination -Force | Out-Null
+                                }
+                                
+                                # Use robocopy for better handling of locked files
+                                $result = robocopy "publish" "C:\\inetpub\\wwwroot\\projectnet83" /E /R:3 /W:5 /MT:8
+                                
+                                # Robocopy exit codes: 0-7 are success, 8+ are errors
+                                if ($LASTEXITCODE -gt 7) {
+                                    throw "Robocopy failed with exit code: $LASTEXITCODE"
+                                } else {
+                                    Write-Host "Files copied successfully to Port 83 folder"
+                                }
+                            '''
+                        }
                     }
                 }
             }
@@ -123,24 +205,56 @@ pipeline {
 
         stage('Start IIS Application Pools') {
             steps {
-                echo 'Starting IIS Application Pools...'
+                echo 'Starting IIS Application Pools and Websites...'
                 powershell '''
                     Import-Module WebAdministration
                     
+                    # Start app pools first
                     $pools = @('projectnet82AppPool', 'projectnet83AppPool')
-                    
                     foreach ($pool in $pools) {
                         try {
                             $state = Get-WebAppPoolState -Name $pool -ErrorAction Stop
                             if ($state.Value -ne 'Started') {
                                 Start-WebAppPool -Name $pool
                                 Write-Host "Started app pool: $pool"
+                                
+                                # Wait for app pool to fully start
+                                $timeout = 30
+                                $elapsed = 0
+                                do {
+                                    Start-Sleep -Seconds 1
+                                    $elapsed++
+                                    $currentState = Get-WebAppPoolState -Name $pool -ErrorAction SilentlyContinue
+                                } while ($currentState.Value -ne 'Started' -and $elapsed -lt $timeout)
+                                
+                                if ($elapsed -ge $timeout) {
+                                    Write-Host "Warning: App pool $pool may not have started completely"
+                                } else {
+                                    Write-Host "App pool $pool fully started after $elapsed seconds"
+                                }
                             } else {
                                 Write-Host "App pool $pool is already started"
                             }
                         }
                         catch {
                             Write-Host "Cannot start app pool $pool"
+                        }
+                    }
+                    
+                    # Then start websites
+                    $sites = @('projectnet82', 'projectnet83')
+                    foreach ($site in $sites) {
+                        try {
+                            $siteState = Get-WebsiteState -Name $site -ErrorAction Stop
+                            if ($siteState.Value -ne 'Started') {
+                                Start-Website -Name $site
+                                Write-Host "Started website: $site"
+                            } else {
+                                Write-Host "Website $site is already started"
+                            }
+                        }
+                        catch {
+                            Write-Host "Cannot start website $site"
                         }
                     }
                 '''
