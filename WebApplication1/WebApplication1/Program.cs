@@ -1,10 +1,12 @@
-namespace WebApplication1
+﻿namespace WebApplication1
 {
     public class Program
     {
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+
+            builder.WebHost.UseUrls("http://0.0.0.0:80"); // Đảm bảo dòng này có mặt khi đóng dockers
 
             // Add services to the container.
             builder.Services.AddControllersWithViews();
